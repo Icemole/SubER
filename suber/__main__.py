@@ -127,7 +127,7 @@ def main():
                              f"reference segments.")
 
         if metric.startswith("SubER"):
-            statistics_collector = SubERStatisticsCollector() if args.suber_statistics else None
+            statistics_collector = SubERStatisticsCollector(top_n=args.top_n) if args.suber_statistics else None
 
             metric_score = calculate_SubER(
                 hypothesis=hypothesis_segments_to_use, reference=reference_segments, metric=metric,

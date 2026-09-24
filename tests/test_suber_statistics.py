@@ -127,8 +127,46 @@ class SubERStatisticsTests(unittest.TestCase):
             "num_break_insertions": 0,
             "num_word_substitutions": 1,
             "num_break_substitutions": 1,
+            "most_common_word_substitutions": [{"reference": "this", "hypothesis": "that", "count": 1}],
+            "most_common_word_insertions": [],
+            "most_common_word_deletions": [],
+            "most_common_break_insertions": [],
+            "most_common_break_deletions": [],
         }
         self._run_test(hypothesis, self._reference2, expected_statistics=expected_statistics)
+
+    def test_break_insertion_split_by_symbol(self):
+        hypothesis = """
+            1
+            0:00:01.000 --> 0:00:02.000
+            This
+            is a subtitle."""
+
+        expected_statistics = {
+            "num_break_insertions": 1,
+            "most_common_break_insertions": [{"word": "<eol>", "count": 1}],
+            "most_common_break_deletions": [],
+            "most_common_break_substitutions": [],
+        }
+        self._run_test(hypothesis, self._reference1, expected_statistics=expected_statistics)
+
+    def test_top_n(self):
+        hypothesis = """
+            1
+            0:00:01.000 --> 0:00:02.000
+            That was b subtitle."""
+
+        statistics_collector = SubERStatisticsCollector(top_n=1)
+        hypothesis_subtitles = create_temporary_file_and_read_it(hypothesis)
+        reference_subtitles = create_temporary_file_and_read_it(self._reference1)
+
+        _ = calculate_SubER(hypothesis_subtitles, reference_subtitles, statistics_collector=statistics_collector)
+
+        statistics = statistics_collector.get_statistics()
+
+        # "This is a" -> "That was b" is 3 word substitutions, only the top 1 should be reported.
+        self.assertEqual(statistics["num_word_substitutions"], 3)
+        self.assertEqual(len(statistics["most_common_word_substitutions"]), 1)
 
     def test_split_into_three_with_one_shift(self):
         hypothesis = """
