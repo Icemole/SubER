@@ -13,6 +13,7 @@ from suber.metrics.suber import calculate_SubER
 from suber.metrics.suber_statistics import SubERStatisticsCollector
 from suber.metrics.sacrebleu_interface import calculate_sacrebleu_metric
 from suber.metrics.jiwer_interface import calculate_word_error_rate
+from suber.metrics.wer_statistics import WERStatisticsCollector
 from suber.metrics.cer import calculate_character_error_rate
 from suber.metrics.length_ratio import calculate_length_ratio
 
@@ -44,6 +45,10 @@ def parse_arguments():
     parser.add_argument("--suber-statistics", action="store_true",
                         help="If set, will create an '#info' field in the output containing statistics about the "
                              "different edit operations used to calculate the SubER score.")
+    parser.add_argument("--wer-statistics", action="store_true",
+                        help="If set, will create an '#info' field in the output containing the number of hits, "
+                             "substitutions, deletions and insertions used to calculate WER-type metrics ('WER', "
+                             "'WER-cased', 'WER-seg', and their 'AS-'/'t-' variants).")
 
     return parser.parse_args()
 
@@ -126,9 +131,15 @@ def main():
                 additional_outputs[full_metric_name] = statistics_collector.get_statistics()
 
         elif metric.startswith("WER"):
+            statistics_collector = WERStatisticsCollector() if args.wer_statistics else None
+
             metric_score = calculate_word_error_rate(
                 hypothesis=hypothesis_segments_to_use, reference=reference_segments, metric=metric,
-                score_break_at_segment_end=score_break_at_segment_end, language=args.language)
+                score_break_at_segment_end=score_break_at_segment_end, language=args.language,
+                statistics_collector=statistics_collector)
+
+            if statistics_collector:
+                additional_outputs[full_metric_name] = statistics_collector.get_statistics()
 
         elif metric.startswith("CER"):
             metric_score = calculate_character_error_rate(

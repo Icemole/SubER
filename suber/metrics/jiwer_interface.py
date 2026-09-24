@@ -1,15 +1,17 @@
 import jiwer
 import functools
-from typing import List
+from typing import List, Optional
 
 from suber.data_types import Segment
 from suber.constants import EAST_ASIAN_LANGUAGE_CODES
 from suber.tokenizers import get_sacrebleu_tokenizer
 from suber.utilities import segment_to_string, get_segment_to_string_opts_from_metric
+from suber.metrics.wer_statistics import WERStatisticsCollector
 
 
 def calculate_word_error_rate(hypothesis: List[Segment], reference: List[Segment], metric="WER",
-                              score_break_at_segment_end=True, language: str = None) -> float:
+                              score_break_at_segment_end=True, language: str = None,
+                              statistics_collector: Optional[WERStatisticsCollector] = None) -> float:
 
     assert len(hypothesis) == len(reference), (
         "Number of hypothesis segments does not match reference, alignment step missing?")
@@ -48,11 +50,20 @@ def calculate_word_error_rate(hypothesis: List[Segment], reference: List[Segment
     hypothesis_strings = [segment_to_string_(segment) for segment in hypothesis]
     reference_strings = [segment_to_string_(segment) for segment in reference]
 
-    wer_score = jiwer.wer(
-        reference_strings,
-        hypothesis_strings,
-        reference_transform=transformations,
-        hypothesis_transform=transformations)
+    if statistics_collector is not None:
+        output = jiwer.process_words(
+            reference_strings,
+            hypothesis_strings,
+            reference_transform=transformations,
+            hypothesis_transform=transformations)
+        statistics_collector.add_data(output)
+        wer_score = output.wer
+    else:
+        wer_score = jiwer.wer(
+            reference_strings,
+            hypothesis_strings,
+            reference_transform=transformations,
+            hypothesis_transform=transformations)
 
     return round(wer_score * 100, 3)
 
