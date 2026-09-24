@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import sys
 
 from collections import OrderedDict
 
@@ -48,7 +49,12 @@ def parse_arguments():
     parser.add_argument("--wer-statistics", action="store_true",
                         help="If set, will create an '#info' field in the output containing the number of hits, "
                              "substitutions, deletions and insertions used to calculate WER-type metrics ('WER', "
-                             "'WER-cased', 'WER-seg', and their 'AS-'/'t-' variants).")
+                             "'WER-cased', 'WER-seg', and their 'AS-'/'t-' variants), together with the most "
+                             "frequent ones. A human-readable hypothesis-to-reference alignment, one block per "
+                             "segment, is also printed to stderr.")
+    parser.add_argument("--top-n", type=int, default=10,
+                        help="Number of most frequent insertions/deletions/substitutions to report with "
+                             "--suber-statistics and --wer-statistics.")
 
     return parser.parse_args()
 
@@ -131,7 +137,7 @@ def main():
                 additional_outputs[full_metric_name] = statistics_collector.get_statistics()
 
         elif metric.startswith("WER"):
-            statistics_collector = WERStatisticsCollector() if args.wer_statistics else None
+            statistics_collector = WERStatisticsCollector(top_n=args.top_n) if args.wer_statistics else None
 
             metric_score = calculate_word_error_rate(
                 hypothesis=hypothesis_segments_to_use, reference=reference_segments, metric=metric,
@@ -140,6 +146,9 @@ def main():
 
             if statistics_collector:
                 additional_outputs[full_metric_name] = statistics_collector.get_statistics()
+                print(f"### Hypothesis-to-reference alignment for metric '{full_metric_name}' ###",
+                     file=sys.stderr)
+                print(statistics_collector.get_alignment_visualization(), file=sys.stderr)
 
         elif metric.startswith("CER"):
             metric_score = calculate_character_error_rate(
