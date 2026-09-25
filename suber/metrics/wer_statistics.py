@@ -5,25 +5,37 @@ import jiwer
 
 from suber.metrics.statistics_utilities import format_top_counts
 
+# How to group adjacent word-level errors when counting most_common_* entries. "word" counts each
+# inserted/deleted/substituted word separately; "phrase" uses jiwer's own grouping (jiwer.collect_error_counts()),
+# which joins adjacent errors of the same type within one alignment chunk into a single multi-word entry.
+ERROR_GROUPING_CHOICES = ("word", "phrase")
+
 
 class WERStatisticsCollector:
     """
     Collects word-level edit operation counts from a jiwer.process_words() result, to explain a WER score in more
     detail than the aggregate number: total hits/substitutions/deletions/insertions, as well as the most frequent
-    individual word insertions, deletions and substitutions.
+    insertions, deletions and substitutions (grouped according to 'error_grouping', see ERROR_GROUPING_CHOICES).
     """
 
-    def __init__(self, top_n: int = 10):
+    def __init__(self, top_n: int = 10, error_grouping: str = "word"):
+        assert error_grouping in ERROR_GROUPING_CHOICES, (
+            f"error_grouping must be one of {ERROR_GROUPING_CHOICES}, got '{error_grouping}'."
+        )
+
         self._top_n = top_n
+        self._error_grouping = error_grouping
 
         self._hits = 0
         self._substitutions = 0
         self._deletions = 0
         self._insertions = 0
 
-        self._substitution_counts = Counter()  # (reference word, hypothesis word) -> count
-        self._insertion_counts = Counter()  # hypothesis word -> count
-        self._deletion_counts = Counter()  # reference word -> count
+        self._substitution_counts = (
+            Counter()
+        )  # (reference word(s), hypothesis word(s)) -> count
+        self._insertion_counts = Counter()  # hypothesis word(s) -> count
+        self._deletion_counts = Counter()  # reference word(s) -> count
 
         self._alignment_visualization = None
 
@@ -33,7 +45,15 @@ class WERStatisticsCollector:
         self._deletions += output.deletions
         self._insertions += output.insertions
 
-        substitution_counts, insertion_counts, deletion_counts = _collect_word_level_error_counts(output)
+        if self._error_grouping == "phrase":
+            substitution_counts, insertion_counts, deletion_counts = (
+                jiwer.collect_error_counts(output)
+            )
+        else:
+            substitution_counts, insertion_counts, deletion_counts = (
+                _collect_word_level_error_counts(output)
+            )
+
         self._substitution_counts.update(substitution_counts)
         self._insertion_counts.update(insertion_counts)
         self._deletion_counts.update(deletion_counts)
@@ -46,8 +66,12 @@ class WERStatisticsCollector:
             substitutions=self._substitutions,
             deletions=self._deletions,
             insertions=self._insertions,
-            most_common_substitutions=format_top_counts(self._substitution_counts, self._top_n),
-            most_common_insertions=format_top_counts(self._insertion_counts, self._top_n),
+            most_common_substitutions=format_top_counts(
+                self._substitution_counts, self._top_n
+            ),
+            most_common_insertions=format_top_counts(
+                self._insertion_counts, self._top_n
+            ),
             most_common_deletions=format_top_counts(self._deletion_counts, self._top_n),
         )
 
@@ -76,14 +100,14 @@ def _collect_word_level_error_counts(output: "jiwer.process.WordOutput"):
 
         for chunk in chunks:
             if chunk.type == "insert":
-                for hyp_word in hyp_words[chunk.hyp_start_idx:chunk.hyp_end_idx]:
+                for hyp_word in hyp_words[chunk.hyp_start_idx : chunk.hyp_end_idx]:
                     insertion_counts[hyp_word] += 1
             elif chunk.type == "delete":
-                for ref_word in ref_words[chunk.ref_start_idx:chunk.ref_end_idx]:
+                for ref_word in ref_words[chunk.ref_start_idx : chunk.ref_end_idx]:
                     deletion_counts[ref_word] += 1
             elif chunk.type == "substitute":
-                ref_chunk_words = ref_words[chunk.ref_start_idx:chunk.ref_end_idx]
-                hyp_chunk_words = hyp_words[chunk.hyp_start_idx:chunk.hyp_end_idx]
+                ref_chunk_words = ref_words[chunk.ref_start_idx : chunk.ref_end_idx]
+                hyp_chunk_words = hyp_words[chunk.hyp_start_idx : chunk.hyp_end_idx]
                 for ref_word, hyp_word in zip(ref_chunk_words, hyp_chunk_words):
                     substitution_counts[(ref_word, hyp_word)] += 1
 

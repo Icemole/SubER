@@ -14,7 +14,7 @@ from suber.metrics.suber import calculate_SubER
 from suber.metrics.suber_statistics import SubERStatisticsCollector
 from suber.metrics.sacrebleu_interface import calculate_sacrebleu_metric
 from suber.metrics.jiwer_interface import calculate_word_error_rate
-from suber.metrics.wer_statistics import WERStatisticsCollector
+from suber.metrics.wer_statistics import WERStatisticsCollector, ERROR_GROUPING_CHOICES
 from suber.metrics.cer import calculate_character_error_rate
 from suber.metrics.length_ratio import calculate_length_ratio
 
@@ -52,6 +52,12 @@ def parse_arguments():
                              "'WER-cased', 'WER-seg', and their 'AS-'/'t-' variants), together with the most "
                              "frequent ones. A human-readable hypothesis-to-reference alignment, one block per "
                              "segment, is also printed to stderr.")
+    parser.add_argument("--wer-error-grouping", choices=ERROR_GROUPING_CHOICES,
+                        default="word",
+                        help="How to group adjacent word-level errors in the most_common_* fields of "
+                             "--wer-statistics. 'word' (default) counts each inserted/deleted/substituted word "
+                             "separately; 'phrase' uses jiwer's own grouping, which joins adjacent errors of the "
+                             "same type into a single multi-word entry.")
     parser.add_argument("--top-n", type=int, default=10,
                         help="Number of most frequent insertions/deletions/substitutions to report with "
                              "--suber-statistics and --wer-statistics.")
@@ -137,7 +143,8 @@ def main():
                 additional_outputs[full_metric_name] = statistics_collector.get_statistics()
 
         elif metric.startswith("WER"):
-            statistics_collector = WERStatisticsCollector(top_n=args.top_n) if args.wer_statistics else None
+            statistics_collector = WERStatisticsCollector(
+                top_n=args.top_n, error_grouping=args.wer_error_grouping) if args.wer_statistics else None
 
             metric_score = calculate_word_error_rate(
                 hypothesis=hypothesis_segments_to_use, reference=reference_segments, metric=metric,
