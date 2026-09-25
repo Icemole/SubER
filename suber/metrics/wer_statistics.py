@@ -10,7 +10,7 @@ class WERStatisticsCollector:
     """
     Collects word-level edit operation counts from a jiwer.process_words() result, to explain a WER score in more
     detail than the aggregate number: total hits/substitutions/deletions/insertions, as well as the most frequent
-    ones.
+    individual word insertions, deletions and substitutions.
     """
 
     def __init__(self, top_n: int = 10):
@@ -33,7 +33,7 @@ class WERStatisticsCollector:
         self._deletions += output.deletions
         self._insertions += output.insertions
 
-        substitution_counts, insertion_counts, deletion_counts = jiwer.collect_error_counts(output)
+        substitution_counts, insertion_counts, deletion_counts = _collect_word_level_error_counts(output)
         self._substitution_counts.update(substitution_counts)
         self._insertion_counts.update(insertion_counts)
         self._deletion_counts.update(deletion_counts)
@@ -57,3 +57,34 @@ class WERStatisticsCollector:
         be printed separately from the JSON output (e.g. to stderr), not included in it.
         """
         return self._alignment_visualization or ""
+
+
+def _collect_word_level_error_counts(output: "jiwer.process.WordOutput"):
+    """
+    Like jiwer.collect_error_counts(), but counts one entry per word instead of joining adjacent
+    inserted/deleted/substituted words of the same alignment chunk into a single multi-word phrase.
+    Within a "substitute" chunk the reference and hypothesis word ranges are always the same length (any extra
+    inserted/deleted words get their own "insert"/"delete" chunk), so zipping them word-by-word is safe.
+    """
+    substitution_counts = Counter()
+    insertion_counts = Counter()
+    deletion_counts = Counter()
+
+    for sentence_index, chunks in enumerate(output.alignments):
+        ref_words = output.references[sentence_index]
+        hyp_words = output.hypotheses[sentence_index]
+
+        for chunk in chunks:
+            if chunk.type == "insert":
+                for hyp_word in hyp_words[chunk.hyp_start_idx:chunk.hyp_end_idx]:
+                    insertion_counts[hyp_word] += 1
+            elif chunk.type == "delete":
+                for ref_word in ref_words[chunk.ref_start_idx:chunk.ref_end_idx]:
+                    deletion_counts[ref_word] += 1
+            elif chunk.type == "substitute":
+                ref_chunk_words = ref_words[chunk.ref_start_idx:chunk.ref_end_idx]
+                hyp_chunk_words = hyp_words[chunk.hyp_start_idx:chunk.hyp_end_idx]
+                for ref_word, hyp_word in zip(ref_chunk_words, hyp_chunk_words):
+                    substitution_counts[(ref_word, hyp_word)] += 1
+
+    return substitution_counts, insertion_counts, deletion_counts
