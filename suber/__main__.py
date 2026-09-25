@@ -5,7 +5,9 @@ import json
 import sys
 
 from collections import OrderedDict
+from typing import List
 
+from suber.data_types import Segment
 from suber.file_readers import read_input_file
 from suber.concat_input_files import create_concatenated_segments
 from suber.hyp_to_ref_alignment import levenshtein_align_hypothesis_to_reference
@@ -49,9 +51,9 @@ def parse_arguments():
     parser.add_argument("--wer-statistics", action="store_true",
                         help="If set, will create an '#info' field in the output containing the number of hits, "
                              "substitutions, deletions and insertions used to calculate WER-type metrics ('WER', "
-                             "'WER-cased', 'WER-seg', and their 'AS-'/'t-' variants), together with the most "
-                             "frequent ones. A human-readable hypothesis-to-reference alignment, one block per "
-                             "segment, is also printed to stderr.")
+                             "'WER-cased', 'WER-seg', 'FFWER', and their 'AS-'/'t-' variants where applicable), "
+                             "together with the most frequent ones. A human-readable hypothesis-to-reference "
+                             "alignment, one block per segment, is also printed to stderr.")
     parser.add_argument("--wer-error-grouping", choices=ERROR_GROUPING_CHOICES,
                         default="word",
                         help="How to group adjacent word-level errors in the most_common_* fields of "
@@ -102,6 +104,7 @@ def main():
 
         full_metric_name = metric
         hypothesis_segments_to_use = hypothesis_segments
+        reference_segments_to_use = reference_segments
 
         if metric.startswith("AS-"):
             # "AS" stands for automatic segmentation, in particular re-segmentation of the hypothesis using
@@ -127,7 +130,15 @@ def main():
             metric = metric[len("t-"):]
             score_break_at_segment_end = True
 
-        elif not metric.startswith("SubER") and len(hypothesis_segments_to_use) != len(reference_segments):
+        elif metric == "FFWER":
+            # "FF" stands for "full file": all segments are concatenated into a single one before computing WER,
+            # so the score no longer depends on hypothesis and reference having a matching (or aligned) number of
+            # segments, unlike plain WER.
+            hypothesis_segments_to_use = _concatenate_into_single_segment(hypothesis_segments)
+            reference_segments_to_use = _concatenate_into_single_segment(reference_segments)
+            metric = "WER"
+
+        elif not metric.startswith("SubER") and len(hypothesis_segments_to_use) != len(reference_segments_to_use):
             raise ValueError(f"Metric '{metric}' assumes same number of segments in hypothesis and reference, but got "
                              f"{len(hypothesis_segments)} hypothesis and {len(reference_segments)} "
                              f"reference segments.")
@@ -136,7 +147,7 @@ def main():
             statistics_collector = SubERStatisticsCollector(top_n=args.top_n) if args.suber_statistics else None
 
             metric_score = calculate_SubER(
-                hypothesis=hypothesis_segments_to_use, reference=reference_segments, metric=metric,
+                hypothesis=hypothesis_segments_to_use, reference=reference_segments_to_use, metric=metric,
                 statistics_collector=statistics_collector, language=args.language)
 
             if statistics_collector:
@@ -147,7 +158,7 @@ def main():
                 top_n=args.top_n, error_grouping=args.wer_error_grouping) if args.wer_statistics else None
 
             metric_score = calculate_word_error_rate(
-                hypothesis=hypothesis_segments_to_use, reference=reference_segments, metric=metric,
+                hypothesis=hypothesis_segments_to_use, reference=reference_segments_to_use, metric=metric,
                 score_break_at_segment_end=score_break_at_segment_end, language=args.language,
                 statistics_collector=statistics_collector)
 
@@ -159,11 +170,11 @@ def main():
 
         elif metric.startswith("CER"):
             metric_score = calculate_character_error_rate(
-                hypothesis=hypothesis_segments_to_use, reference=reference_segments, metric=metric)
+                hypothesis=hypothesis_segments_to_use, reference=reference_segments_to_use, metric=metric)
 
         else:
             metric_score = calculate_sacrebleu_metric(
-                hypothesis=hypothesis_segments_to_use, reference=reference_segments, metric=metric,
+                hypothesis=hypothesis_segments_to_use, reference=reference_segments_to_use, metric=metric,
                 score_break_at_segment_end=score_break_at_segment_end, language=args.language)
 
         results[full_metric_name] = metric_score
@@ -175,12 +186,24 @@ def main():
     print(json_results)
 
 
+def _concatenate_into_single_segment(segments: List[Segment]) -> List[Segment]:
+    """
+    Merges all segments into a single one, used for "FFWER" ("full file" WER): computing WER on one long word
+    sequence instead of many separately-aligned segments makes the score insensitive to hypothesis/reference
+    segment boundaries not lining up, including a differing number of segments overall.
+    """
+    word_list = [word for segment in segments for word in segment.word_list]
+    return [Segment(word_list=word_list)]
+
+
 def check_metrics(metrics):
     allowed_metrics = {
         # Our proposed metric:
         "SubER", "SubER-cased",
         # Established ASR and MT metrics, requiring aligned hypothesis-references segments:
         "WER", "CER", "BLEU", "TER", "chrF",
+        # WER computed after concatenating all segments into a single one, see _concatenate_into_single_segment().
+        "FFWER",
         # Cased and punctuated variants of the above:
         "WER-cased", "CER-cased",
         # Segmentation-aware variants of the above that include line breaks as tokens:
