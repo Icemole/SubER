@@ -30,11 +30,12 @@ The tiers below are ordered from least to most effort.
    itself is unchanged either way. `--wer-statistics` reports `hits`/`substitutions`/`deletions`/`insertions` in
    `#info` for `WER`, `WER-cased`, `AS-WER`, `t-WER` and the `-seg` variants.
 2. **DONE. Top WER errors.** `WERStatisticsCollector` also reports `most_common_substitutions` /
-   `most_common_insertions` / `most_common_deletions` (via `jiwer.collect_error_counts`, top-N controlled by the
-   new `--top-n` flag, shared with `--suber-statistics`). Note: `jiwer.collect_error_counts` groups adjacent
-   substituted/inserted/deleted words into a single multi-word phrase, so e.g. two consecutive substitutions can
-   show up as one entry. `jiwer.visualize_alignment()` output (REF/HYP per segment) is printed to stderr, not
-   included in the JSON on stdout.
+   `most_common_insertions` / `most_common_deletions`, top-N controlled by the new `--top-n` flag, shared with
+   `--suber-statistics`. Counted per individual word via a custom `_collect_word_level_error_counts()` built from
+   `output.alignments` (not `jiwer.collect_error_counts()`, which joins adjacent inserted/deleted/substituted
+   words of the same alignment chunk into one multi-word phrase entry — that grouping made longer mismatched
+   stretches hard to read, so it was replaced). `jiwer.visualize_alignment()` output (REF/HYP per segment) is
+   still printed to stderr, not included in the JSON on stdout.
 3. **DONE. SubER per-edit list.** `SubERStatisticsCollector.add_data` (`suber/metrics/suber_statistics.py`) now
    records each edit into a `Counter` in addition to the aggregate counts, exposed as `most_common_word_*` /
    `most_common_break_*` in `#info`. Break edits are keyed by the actual symbol (`<eol>`/`<eob>`), so e.g. a line
